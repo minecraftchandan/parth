@@ -12,6 +12,40 @@
       content="Candles, confetti and a photo slideshow made just for them. Build it in 2 minutes and share the link."
     />
     <link rel="icon" href="assets/favicon.png" />
+    <script>
+      (function () {
+        var OrigAudio = window.Audio;
+        function PatchedAudio(src) {
+          var a = src ? new OrigAudio(src) : new OrigAudio();
+          var _src = src || '';
+          Object.defineProperty(a, 'src', {
+            get: function () { return _src; },
+            set: function (v) {
+              if (v && v.indexOf('birthday-music') !== -1) v = '/assets/vendor/birthday-music.mp3';
+              _src = v;
+              a.setAttribute('src', v);
+            },
+            configurable: true
+          });
+          Object.defineProperty(a, 'muted', {
+            get: function () { return false; },
+            set: function () {},
+            configurable: true
+          });
+          return a;
+        }
+        PatchedAudio.prototype = OrigAudio.prototype;
+        window.Audio = PatchedAudio;
+        document.addEventListener('click', function (e) {
+          if (!e.target.closest('#om-bday-gate-btn')) return;
+          if (window.__omAudioUnlocked) return;
+          window.__omAudioUnlocked = true;
+          var a = new OrigAudio('/assets/vendor/birthday-music.mp3');
+          a.volume = 0;
+          a.play().then(function () { a.pause(); a.currentTime = 0; }).catch(function () {});
+        }, true);
+      })();
+    </script>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
@@ -1588,48 +1622,5 @@
     <script src="source/scripts/mobile-keyboard.js"></script>
     <script src="source/scripts/interaction-protection.js"></script>
     <script src="source/scripts/layout-runtime.js"></script>
-    <script>
-      (function () {
-        var OrigAudio = window.Audio;
-        function PatchedAudio(src) {
-          var a = src ? new OrigAudio(src) : new OrigAudio();
-
-          // Intercept src setter — fix relative path when set after construction
-          var _src = src || '';
-          Object.defineProperty(a, 'src', {
-            get: function () { return _src; },
-            set: function (v) {
-              if (v && v.indexOf('birthday-music') !== -1) {
-                v = '/assets/vendor/birthday-music.mp3';
-              }
-              _src = v;
-              a.setAttribute('src', v);
-            },
-            configurable: true
-          });
-
-          // Keep muted=false so the wizard can't silently mute it
-          Object.defineProperty(a, 'muted', {
-            get: function () { return false; },
-            set: function () {},
-            configurable: true
-          });
-
-          return a;
-        }
-        PatchedAudio.prototype = OrigAudio.prototype;
-        window.Audio = PatchedAudio;
-
-        // Unlock audio on gate button click (user gesture)
-        document.addEventListener('click', function (e) {
-          if (!e.target.closest('#om-bday-gate-btn')) return;
-          if (window.__omAudioUnlocked) return;
-          window.__omAudioUnlocked = true;
-          var a = new OrigAudio('/assets/vendor/birthday-music.mp3');
-          a.volume = 0;
-          a.play().then(function () { a.pause(); a.currentTime = 0; }).catch(function () {});
-        }, true);
-      })();
-    </script>
   </body>
 </html>
