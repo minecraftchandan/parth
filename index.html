@@ -6,7 +6,7 @@
       name="viewport"
       content="width=device-width, initial-scale=1.0, viewport-fit=cover"
     />
-    <title>Send a Birthday Surprise 🎂 | OurMoments</title>
+    <title>Send a Birthday Surprise 🎂</title>
     <meta
       name="description"
       content="Candles, confetti and a photo slideshow made just for them. Build it in 2 minutes and share the link."
@@ -135,6 +135,10 @@
                       If they open early, a countdown holds the surprise until
                       12:00 AM 🎈
                     </p>
+                    <label class="om-bday-date-lock" for="om-bday-date-lock-input">
+                      <input id="om-bday-date-lock-input" type="checkbox" />
+                      <span>Open on this date only</span>
+                    </label>
                   </div>
                   <div class="om-bday-btn-row">
                     <button
@@ -1407,19 +1411,7 @@
             >
               🔊
             </button>
-            <div class="om-bday-footer" id="om-bday-footer">
-              Made with 💛 on
-              <a href="https://ourmoments.live" target="_blank" rel="noopener"
-                >OurMoments.live</a
-              >
-              —
-              <a
-                href="https://ourmoments.live/birthday"
-                target="_blank"
-                rel="noopener"
-                >create one for someone you love</a
-              >
-            </div>
+            <div class="om-bday-footer" id="om-bday-footer" hidden></div>
             <div class="om-bday-expired" id="om-bday-expired">
               <div class="om-bday-expired-card">
                 <div class="om-bday-expired-emoji" id="om-bday-expired-emoji">
@@ -1432,11 +1424,6 @@
                   Birthday surprises stay live for 3 months — this one has
                   expired. The love behind it hasn&rsquo;t, though 💛
                 </div>
-                <a
-                  class="om-bday-expired-cta"
-                  href="https://ourmoments.live/birthday"
-                  >Make Your Own 🎂</a
-                >
               </div>
             </div>
             <div class="om-bday-modal" id="om-bday-unlock-modal">
@@ -1484,19 +1471,18 @@
                     ></div>
                   </div>
                   <div class="om-bday-unlock-tagline">
-                    Verify your OTP to create the private link 💛
+                    Create your private link 💛
                   </div>
                   <button
                     class="om-bday-btn om-bday-shine-btn"
                     id="om-bday-pay-btn"
                   >
                     <span id="om-bday-pay-btn-label"
-                      >Get the Link with OTP 🎁</span
+                      >Create my link 🎁</span
                     >
                   </button>
                   <div class="om-bday-trust-row">
-                    🔐 One-time OTP &nbsp;·&nbsp; ⚡ Instant link
-                    &nbsp;·&nbsp; 💛 No ads
+                    ⚡ Instant link &nbsp;·&nbsp; 💛 No ads
                   </div>
                   <div class="om-bday-social-proof">
                     <span>📅 Your link stays live for 90 days</span
@@ -1602,5 +1588,48 @@
     <script src="source/scripts/mobile-keyboard.js"></script>
     <script src="source/scripts/interaction-protection.js"></script>
     <script src="source/scripts/layout-runtime.js"></script>
+    <script>
+      (function () {
+        var OrigAudio = window.Audio;
+        function PatchedAudio(src) {
+          var a = src ? new OrigAudio(src) : new OrigAudio();
+
+          // Intercept src setter — fix relative path when set after construction
+          var _src = src || '';
+          Object.defineProperty(a, 'src', {
+            get: function () { return _src; },
+            set: function (v) {
+              if (v && v.indexOf('birthday-music') !== -1) {
+                v = '/assets/vendor/birthday-music.mp3';
+              }
+              _src = v;
+              a.setAttribute('src', v);
+            },
+            configurable: true
+          });
+
+          // Keep muted=false so the wizard can't silently mute it
+          Object.defineProperty(a, 'muted', {
+            get: function () { return false; },
+            set: function () {},
+            configurable: true
+          });
+
+          return a;
+        }
+        PatchedAudio.prototype = OrigAudio.prototype;
+        window.Audio = PatchedAudio;
+
+        // Unlock audio on gate button click (user gesture)
+        document.addEventListener('click', function (e) {
+          if (!e.target.closest('#om-bday-gate-btn')) return;
+          if (window.__omAudioUnlocked) return;
+          window.__omAudioUnlocked = true;
+          var a = new OrigAudio('/assets/vendor/birthday-music.mp3');
+          a.volume = 0;
+          a.play().then(function () { a.pause(); a.currentTime = 0; }).catch(function () {});
+        }, true);
+      })();
+    </script>
   </body>
 </html>
