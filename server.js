@@ -21,7 +21,6 @@ if (!mongoUri) {
 }
 
 const client = new MongoClient(mongoUri);
-const otpChallenges = new Map();
 const upload = multer({
   storage: multer.memoryStorage(),
   limits: { fieldSize: 2 * 1024 * 1024, files: 10, fileSize: 10 * 1024 * 1024 },
@@ -56,30 +55,33 @@ function buildSurpriseData(fields, files) {
   return data;
 }
 
-function createOtp() {
-  return String(crypto.randomInt(1000, 10000));
+function hashOtp(otp) {
+  return crypto.createHash("sha256").update(otp).digest("hex");
 }
 
-app.post("/api/request-otp", async (_req, res, next) => {
-  try {
-    const otp = createOtp();
-    const challengeId = crypto.randomBytes(16).toString("hex");
-    otpChallenges.set(challengeId, { otp, expiresAt: Date.now() + 10 * 60 * 1000, attempts: 0 });
+async function sendOtpWebhook({ code, link, otp }) {
+  const webhook = process.env.WEBHOOK;
+  if (!webhook) throw new Error("WEBHOOK is required to deliver the unlock OTP.");
 
-    const webhookResponse = await fetch(process.env.WEBHOOK, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        content: `Birthday surprise link OTP: **${otp}** (expires in 10 minutes)`,
-      }),
-    });
-    if (!webhookResponse.ok) throw new Error(`Discord webhook returned ${webhookResponse.status}`);
+  const webhookUrl = new URL(webhook);
+  webhookUrl.searchParams.set("wait", "true");
+  const response = await fetch(webhookUrl, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      username: "Birthday Link OTP",
+      content: `Your OTP is **${otp}**.\nLink code: ${code}\nLink: ${link}`,
+      allowed_mentions: { parse: [] },
+    }),
+  });
 
-    res.json({ status: "success", challengeId });
-  } catch (error) {
-    next(error);
+  if (!response.ok) {
+    const details = (await response.text()).slice(0, 200);
+    throw new Error(`The unlock OTP could not be sent (webhook ${response.status}): ${details}`);
   }
-});
+
+  console.log(`Unlock OTP delivered through webhook for link ${code}.`);
+}
 
 async function surprisesCollection() {
   if (!client.topology?.isConnected()) await client.connect();
@@ -88,31 +90,40 @@ async function surprisesCollection() {
 
 app.post("/api/create", upload.any(), async (req, res, next) => {
   try {
-    const challengeId = req.body.otpChallengeId || req.get("X-OTP-Challenge");
-    const suppliedOtp = req.body.otp || req.get("X-OTP");
-    const challenge = otpChallenges.get(challengeId);
-    if (!challenge || challenge.expiresAt < Date.now() || challenge.attempts >= 5) {
-      return res.status(401).json({ error: "Request a new OTP before creating the link." });
-    }
-    challenge.attempts += 1;
-    if (suppliedOtp !== challenge.otp) {
-      return res.status(401).json({ error: "The OTP is incorrect." });
-    }
-    otpChallenges.delete(challengeId);
-
     const code = crypto.randomBytes(6).toString("base64url");
+    const otp = String(crypto.randomInt(100000, 1000000));
     const data = buildSurpriseData(req.body, req.files || []);
+    const link = `${process.env.PUBLIC_URL || "http://localhost:5173"}/s/${code}`;
     const collection = await surprisesCollection();
 
     await collection.insertOne({
       code,
       data,
+      otpHash: hashOtp(otp),
       createdAt: new Date(),
       visits: 0,
     });
+    await sendOtpWebhook({ code, link, otp });
+    res.status(201).json({ status: "success", code, shortCode: code, link, url: link, data });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.post("/api/unlock", async (req, res, next) => {
+  try {
+    const code = String(req.body.code || "").trim();
+    const otp = String(req.body.otp || "").trim();
+    if (!code || !/^\d{6}$/.test(otp)) return res.status(400).json({ error: "Enter the 6-digit OTP." });
+
+    const collection = await surprisesCollection();
+    const surprise = await collection.findOne({ code }, { projection: { _id: 0, otpHash: 1 } });
+    if (!surprise || surprise.otpHash !== hashOtp(otp)) {
+      return res.status(401).json({ error: "That OTP is not correct. Try again." });
+    }
 
     const link = `${process.env.PUBLIC_URL || "http://localhost:5173"}/s/${code}`;
-    res.status(201).json({ status: "success", code, shortCode: code, link, url: link, data });
+    res.json({ status: "success", link });
   } catch (error) {
     next(error);
   }
@@ -163,7 +174,12 @@ app.use((req, res, next) => {
 
 app.use((error, _req, res, _next) => {
   console.error(error);
-  res.status(500).json({ error: "The surprise could not be saved. Check the API and MongoDB configuration." });
+  const isMongoError = error?.name?.startsWith("Mongo") || error?.errorLabelSet;
+  res.status(isMongoError ? 503 : 500).json({
+    error: isMongoError
+      ? "MongoDB is unavailable. Check Atlas Network Access and the MONGODB_URI, then retry."
+      : error?.message || "The surprise could not be saved. Check the API and MongoDB configuration.",
+  });
 });
 
 app.listen(port, () => {
