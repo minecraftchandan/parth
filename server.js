@@ -88,6 +88,17 @@ async function surprisesCollection() {
   return client.db(databaseName).collection("surprises");
 }
 
+app.post("/api/upload-photo", upload.any(), async (req, res, next) => {
+  try {
+    const file = req.files && req.files[0];
+    if (!file) return res.status(400).json({ error: "No photo provided." });
+    const dataUrl = `data:${file.mimetype};base64,${file.buffer.toString("base64")}`;
+    res.json({ status: "success", data: { url: dataUrl, display_url: dataUrl } });
+  } catch (error) {
+    next(error);
+  }
+});
+
 app.post("/api/create", upload.any(), async (req, res, next) => {
   try {
     const code = crypto.randomBytes(6).toString("base64url");
